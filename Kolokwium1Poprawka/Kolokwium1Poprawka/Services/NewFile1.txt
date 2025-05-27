@@ -1,0 +1,223 @@
+// importy
+// namespace
+
+public class DbService : IDbService
+{
+    private readonly string _connectionString;
+    public DbService(IConfiguration configuration)
+    {
+        _connectionString = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+    }
+    
+    
+    
+    
+    
+    // metody
+    // przyklad
+    // jedno połączenie
+    
+    
+    public async Task<CustomerRentalHistoryDto> GetRentalsForCustomerByIdAsync(int customerId)
+        {
+            var query =
+                @"SELECT cos
+                FROM gdzies
+                JOIN ...
+                WHERE cos = @cos;";
+            
+            await using SqlConnection connection = new SqlConnection(_connectionString);
+            await using SqlCommand command = new SqlCommand();
+            
+            command.Connection = connection;
+            command.CommandText = query;
+            await connection.OpenAsync();
+            
+            command.Parameters.AddWithValue("@cos", cos);
+            var reader = await command.ExecuteReaderAsync();
+            
+            CustomerRentalHistoryDto? rentals = null;
+            
+            while (await reader.ReadAsync())
+            {
+                if (rentals is null)
+                {
+                    rentals = new CustomerRentalHistoryDto
+                    {
+                        FirstName = reader.GetString(0),
+                        LastName = reader.GetString(1),
+                        Rentals = new List<RentalDetailsDto>()
+                    };
+                }
+                
+                int rentalId = reader.GetInt32(2);
+                
+                var rental = rentals.Rentals.FirstOrDefault(e => e.Id.Equals(rentalId));
+                if (rental is null)
+                {
+                    rental = new RentalDetailsDto()
+                    {
+                        Id = rentalId,
+                        RentalDate = reader.GetDateTime(3),
+                        ReturnDate = await reader.IsDBNullAsync(4) ? null : reader.GetDateTime(4),
+                        Status = reader.GetString(5),
+                        Movies = new List<RentedMovieDto>()
+                    };
+                    rentals.Rentals.Add(rental);
+                }
+                rental.Movies.Add(new RentedMovieDto()
+                {
+                    Title = reader.GetString(7),
+                    PriceAtRental = reader.GetDecimal(6),
+                });
+                
+            }       
+            
+            if (rentals is null)
+            {
+                throw new NotFoundException("No rentals found for the specified customer.");
+            }
+            
+            return rentals;
+        }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    // albo
+    // rozdzielenie na oddzielne połączenia
+    
+    var query = @"Select 
+                            (Select Count(1) From Product Where IdProduct = @IdProduct), 
+                            (Select Count(1) From Warehouse Where IdWarehouse = @IdWarehouse),
+                            (Select IdOrder From [Order] Where IdProduct = @IdProduct And Amount = @Amount And CreatedAt < @CreatedAt);";
+            
+            // Punkty 1, 2 oraz 3
+            using (SqlConnection conn = new SqlConnection(_connectionString))
+            {
+                await conn.OpenAsync();
+                SqlTransaction transaction = conn.BeginTransaction();
+                try
+                {
+                    using (SqlCommand cmd = new SqlCommand(query, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@IdProduct", dto.IdProduct);
+                    cmd.Parameters.AddWithValue("@IdWarehouse", dto.IdWarehouse);
+                    cmd.Parameters.AddWithValue("@CreatedAt", dto.CreatedAt);
+                    cmd.Parameters.AddWithValue("@Amount", dto.Amount);
+    
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (!await reader.ReadAsync())
+                        {
+                            transaction.Rollback();
+                            throw new Exception("No records found");
+                        }
+                        if (reader.GetInt32(0) == 0)
+                        {
+                            transaction.Rollback();
+                            throw new Exception("Nie znaleziono produktu");
+                        }
+                        if (reader.GetInt32(1) == 0)
+                        {
+                            transaction.Rollback();
+                            throw new Exception("Nie znaleziono magazynu");
+                        }
+                        if (reader.IsDBNull(2))
+                        {
+                            transaction.Rollback();
+                            throw new Exception("Nie znaleziono zamówienia");
+                        }
+                        IdOrder = reader.GetInt32(2);
+                    }
+                }
+                
+                
+                
+                
+                
+                
+                query = @"Update [Order] Set FulfilledAt = @DateTime Where IdOrder = @IdOrder;";
+                
+                // Punkt 4
+                using (SqlCommand cmd = new SqlCommand(query, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@DateTime", dateTime);
+                    cmd.Parameters.AddWithValue("@IdOrder", IdOrder);
+    
+                    var result = await cmd.ExecuteNonQueryAsync();
+    
+                    if (result == 0)
+                    {
+                        transaction.Rollback();
+                        throw new Exception("Nie udało się zaaktualizować czasu FulfilledAt");
+                    }
+                }
+                
+                
+                
+                
+                
+                
+                // Punkt 5
+            
+                // Znalezienie ceny produktu
+                query = @"Select Price From Product Where IdProduct = @IdProduct;";
+                using (SqlCommand cmd = new SqlCommand(query, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@IdProduct", dto.IdProduct);
+                    var res = await cmd.ExecuteScalarAsync();
+                    if (res == null)
+                    {
+                        transaction.Rollback();
+                        throw new Exception("Problem ze znalezieniem ceny");
+                    }
+                    price = Convert.ToDecimal(res);
+                }
+                
+                
+                
+                
+                
+                
+                
+                query = @"Insert Into Product_Warehouse (IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt)
+                    Values (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, @CreatedAt);
+                    Select Scope_Identity();";
+                
+                using (SqlCommand cmd = new SqlCommand(query, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@IdWarehouse", dto.IdWarehouse);
+                    cmd.Parameters.AddWithValue("@IdProduct", dto.IdProduct);
+                    cmd.Parameters.AddWithValue("@IdOrder", IdOrder);
+                    cmd.Parameters.AddWithValue("@Amount", dto.Amount);
+                    cmd.Parameters.AddWithValue("@Price", price*dto.Amount);
+                    cmd.Parameters.AddWithValue("@CreatedAt", dateTime);
+                
+                    var res = await cmd.ExecuteScalarAsync();
+                    if (res == null)
+                    {
+                        transaction.Rollback();
+                        throw new Exception("Nie udało się dodać rekord do Product_Warehouse");
+                    }
+                    newId = Convert.ToInt32(res);
+                }
+                transaction.Commit();
+                return newId;
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    throw new Exception("Oj, coś poszło nie tak :_)");
+                }
+            }
+    
+    
+    
+}

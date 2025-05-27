@@ -1,0 +1,14 @@
+[Route("api/[controller]")]
+[ApiController]
+public class CustomersController : ControllerBase
+{
+    private readonly IDbService _dbService;
+    public CustomersController(IDbService dbService)
+    {
+        _dbService = dbService;
+    }
+    
+    
+    // metody
+}
+
